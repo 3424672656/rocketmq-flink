@@ -60,7 +60,7 @@ public class RocketMQRecordEmitterTest {
         MessageView messageView = new MessageViewExt(message);
         RocketMQSourceSplitState partitionSplitState =
                 new RocketMQSourceSplitState(
-                        new RocketMQSourceSplit(topic, broker, partition, startingOffset, -1L));
+                        new RocketMQSourceSplit(topic, broker, partition, startingOffset, -1L, (byte) 1));
 
         recordEmitter.emitRecord(messageView, new TestingEmitterOutput<>(), partitionSplitState);
     }

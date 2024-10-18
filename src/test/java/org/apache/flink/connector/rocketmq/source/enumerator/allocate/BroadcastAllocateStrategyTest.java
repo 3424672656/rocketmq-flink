@@ -26,7 +26,7 @@ public class BroadcastAllocateStrategyTest {
         for (int i = 0; i < NUM_SPLITS; i++) {
             mqAll.add(
                     new RocketMQSourceSplit(
-                            PREFIX_TOPIC + (i + 1), BROKER_NAME, i, 0, SPLIT_SIZE[i]));
+                            PREFIX_TOPIC + (i + 1), BROKER_NAME, i, 0, SPLIT_SIZE[i], (byte) 1));
         }
         int parallelism = 3;
         Map<Integer, Set<RocketMQSourceSplit>> result =
@@ -40,7 +40,7 @@ public class BroadcastAllocateStrategyTest {
                 assertTrue(
                         splits.contains(
                                 new RocketMQSourceSplit(
-                                        PREFIX_TOPIC + (i + 1), BROKER_NAME, i, 0, SPLIT_SIZE[i])));
+                                        PREFIX_TOPIC + (i + 1), BROKER_NAME, i, 0, SPLIT_SIZE[i], (byte) 1)));
             }
         }
     }

@@ -144,6 +144,8 @@ public class RocketMQSplitReader<T> implements SplitReader<MessageView, RocketMQ
 
         // Assignment.
         ConcurrentMap<MessageQueue, Tuple2<Long, Long>> newOffsetTable = new ConcurrentHashMap<>();
+        //delete
+        ConcurrentMap<MessageQueue, Tuple2<Long, Long>> deleteOffsetTable = new ConcurrentHashMap<>();
 
         // Set up the stopping timestamps.
         splitsChange
@@ -155,18 +157,29 @@ public class RocketMQSplitReader<T> implements SplitReader<MessageView, RocketMQ
                                             split.getTopic(),
                                             split.getBrokerName(),
                                             split.getQueueId());
-                            newOffsetTable.put(
-                                    messageQueue,
-                                    new Tuple2<>(
-                                            split.getStartingOffset(), split.getStoppingOffset()));
-                            rocketmqSourceReaderMetrics.registerNewMessageQueue(messageQueue);
+                            if (split.getValid() == 1) {
+                                newOffsetTable.put(
+                                        messageQueue,
+                                        new Tuple2<>(
+                                                split.getStartingOffset(), split.getStoppingOffset()));
+                                rocketmqSourceReaderMetrics.registerNewMessageQueue(messageQueue);
+                            } else {
+                                deleteOffsetTable.put(
+                                        messageQueue,
+                                        new Tuple2<>(
+                                                split.getStartingOffset(), split.getStoppingOffset()));
+                                rocketmqSourceReaderMetrics.deleteMessageQueue(messageQueue);
+                            }
                         });
 
         // todo: log message queue change
 
         // It will replace the previous assignment
         Set<MessageQueue> incrementalSplits = newOffsetTable.keySet();
+        Set<MessageQueue> decreaseSplits = deleteOffsetTable.keySet();
+
         consumer.assign(incrementalSplits);
+        consumer.pause(decreaseSplits);
 
         // set offset to consumer
         for (Map.Entry<MessageQueue, Tuple2<Long, Long>> entry : newOffsetTable.entrySet()) {

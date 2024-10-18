@@ -44,6 +44,7 @@ import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -76,6 +77,8 @@ public class RocketMQSourceEnumerator
     // ready.
     private final Set<MessageQueue> allocatedSet;
     private final Map<Integer, Set<RocketMQSourceSplit>> pendingSplitAssignmentMap;
+    // Store assign result
+    private Map<Integer, Set<RocketMQSourceSplit>> currentSplitAssignmentMap;
 
     // Param from configuration
     private final String groupId;
@@ -249,29 +252,63 @@ public class RocketMQSourceEnumerator
     // This method should only be invoked in the coordinator executor thread.
     private SourceSplitChangeResult initializeSourceSplits(SourceChangeResult sourceChangeResult) {
         Set<MessageQueue> increaseSet = sourceChangeResult.getIncreaseSet();
+        Set<MessageQueue> decreaseSet = sourceChangeResult.getDecreaseSet();
+        Set<MessageQueue> latestSet = sourceChangeResult.getLatestSet();
 
         OffsetsSelector.MessageQueueOffsetsRetriever offsetsRetriever =
                 new InnerConsumerImpl.RemotingOffsetsRetrieverImpl(consumer);
 
-        Map<MessageQueue, Long> startingOffsets =
+        Map<MessageQueue, Long> increaseStartingOffsets =
                 startingOffsetsSelector.getMessageQueueOffsets(increaseSet, offsetsRetriever);
-        Map<MessageQueue, Long> stoppingOffsets =
+        Map<MessageQueue, Long> increaseStoppingOffsets =
                 stoppingOffsetsSelector.getMessageQueueOffsets(increaseSet, offsetsRetriever);
+        Map<MessageQueue, Long> decreaseStartingOffsets =
+                startingOffsetsSelector.getMessageQueueOffsets(decreaseSet, offsetsRetriever);
+        Map<MessageQueue, Long> decreaseStoppingOffsets =
+                stoppingOffsetsSelector.getMessageQueueOffsets(decreaseSet, offsetsRetriever);
+        Map<MessageQueue, Long> latestStartingOffsets =
+                startingOffsetsSelector.getMessageQueueOffsets(latestSet, offsetsRetriever);
+        Map<MessageQueue, Long> latestStoppingOffsets =
+                stoppingOffsetsSelector.getMessageQueueOffsets(latestSet, offsetsRetriever);
 
         Set<RocketMQSourceSplit> increaseSplitSet =
                 increaseSet.stream()
                         .map(
                                 mq -> {
-                                    long startingOffset = startingOffsets.get(mq);
+                                    long startingOffset = increaseStartingOffsets.get(mq);
                                     long stoppingOffset =
-                                            stoppingOffsets.getOrDefault(
+                                            increaseStoppingOffsets.getOrDefault(
                                                     mq, RocketMQSourceSplit.NO_STOPPING_OFFSET);
                                     return new RocketMQSourceSplit(
-                                            mq, startingOffset, stoppingOffset);
+                                            mq, startingOffset, stoppingOffset, (byte) 1);
+                                })
+                        .collect(Collectors.toSet());
+        Set<RocketMQSourceSplit> decreaseSpiltSet =
+                decreaseSet.stream()
+                        .map(
+                                mq -> {
+                                    long startingOffset = decreaseStartingOffsets.get(mq);
+                                    long stoppingOffset =
+                                            decreaseStoppingOffsets.getOrDefault(
+                                                    mq, RocketMQSourceSplit.NO_STOPPING_OFFSET);
+                                    return new RocketMQSourceSplit(
+                                            mq, startingOffset, stoppingOffset, (byte) 0);
+                                })
+                        .collect(Collectors.toSet());
+        Set<RocketMQSourceSplit> latestSpiltSet =
+                latestSet.stream()
+                        .map(
+                                mq -> {
+                                    long startingOffset = latestStartingOffsets.get(mq);
+                                    long stoppingOffset =
+                                            latestStoppingOffsets.getOrDefault(
+                                                    mq, RocketMQSourceSplit.NO_STOPPING_OFFSET);
+                                    return new RocketMQSourceSplit(
+                                            mq, startingOffset, stoppingOffset, (byte) 1);
                                 })
                         .collect(Collectors.toSet());
 
-        return new SourceSplitChangeResult(increaseSplitSet, sourceChangeResult.getDecreaseSet());
+        return new SourceSplitChangeResult(increaseSplitSet, decreaseSpiltSet, latestSpiltSet);
     }
 
     /**
@@ -297,12 +334,15 @@ public class RocketMQSourceEnumerator
 
     /** Calculate new split assignment according allocate strategy */
     private void calculateSplitAssignment(SourceSplitChangeResult sourceSplitChangeResult) {
+        Map<Integer, Set<RocketMQSourceSplit>> changeSpiltAllocateMap;
         Map<Integer, Set<RocketMQSourceSplit>> newSourceSplitAllocateMap =
                 this.allocateStrategy.allocate(
-                        sourceSplitChangeResult.getIncreaseSet(), context.currentParallelism());
+                        sourceSplitChangeResult.getLatestSet(), context.currentParallelism());
+
+        changeSpiltAllocateMap = handleChangeSpiltAssignment(newSourceSplitAllocateMap, sourceSplitChangeResult.getDecreaseSet());
 
         for (Map.Entry<Integer, Set<RocketMQSourceSplit>> entry :
-                newSourceSplitAllocateMap.entrySet()) {
+                changeSpiltAllocateMap.entrySet()) {
             this.pendingSplitAssignmentMap
                     .computeIfAbsent(entry.getKey(), r -> new HashSet<>())
                     .addAll(entry.getValue());
@@ -311,7 +351,7 @@ public class RocketMQSourceEnumerator
 
     // This method should only be invoked in the coordinator executor thread.
     private void sendSplitChangesToRemote(Set<Integer> pendingReaders) {
-        Map<Integer, List<RocketMQSourceSplit>> incrementalSplit = new ConcurrentHashMap<>();
+        Map<Integer, List<RocketMQSourceSplit>> changeSplit = new ConcurrentHashMap<>();
 
         for (Integer pendingReader : pendingReaders) {
             if (!context.registeredReaders().containsKey(pendingReader)) {
@@ -326,20 +366,26 @@ public class RocketMQSourceEnumerator
 
             // Put pending assignment into incremental assignment
             if (pendingAssignmentForReader != null && !pendingAssignmentForReader.isEmpty()) {
-                incrementalSplit
+                changeSplit
                         .computeIfAbsent(pendingReader, k -> new ArrayList<>())
                         .addAll(pendingAssignmentForReader);
                 pendingAssignmentForReader.forEach(
-                        split -> this.allocatedSet.add(split.getMessageQueue()));
+                        split -> {
+                            if (split.getValid() == 1) {
+                                this.allocatedSet.add(split.getMessageQueue());
+                            } else {
+                                this.allocatedSet.remove(split.getMessageQueue());
+                            }
+                        });
             }
         }
 
         // Assign pending splits to readers
-        if (!incrementalSplit.isEmpty()) {
+        if (!changeSplit.isEmpty()) {
             log.info(
                     "Enumerator assigning split(s) to readers {}",
-                    JSON.toJSONString(incrementalSplit, false));
-            context.assignSplits(new SplitsAssignment<>(incrementalSplit));
+                    JSON.toJSONString(changeSplit, false));
+            context.assignSplits(new SplitsAssignment<>(changeSplit));
         }
 
         // Sends NoMoreSplitsEvent to the readers if there is no more partition.
@@ -357,10 +403,12 @@ public class RocketMQSourceEnumerator
     private static class SourceChangeResult {
         private final Set<MessageQueue> increaseSet;
         private final Set<MessageQueue> decreaseSet;
+        private final Set<MessageQueue> latestSet;
 
-        public SourceChangeResult(Set<MessageQueue> increaseSet, Set<MessageQueue> decreaseSet) {
+        public SourceChangeResult(Set<MessageQueue> increaseSet, Set<MessageQueue> decreaseSet, Set<MessageQueue> latestSet) {
             this.increaseSet = increaseSet;
             this.decreaseSet = decreaseSet;
+            this.latestSet = latestSet;
         }
 
         public Set<MessageQueue> getIncreaseSet() {
@@ -369,6 +417,10 @@ public class RocketMQSourceEnumerator
 
         public Set<MessageQueue> getDecreaseSet() {
             return decreaseSet;
+        }
+
+        public Set<MessageQueue> getLatestSet() {
+            return latestSet;
         }
 
         public boolean isEmpty() {
@@ -380,24 +432,31 @@ public class RocketMQSourceEnumerator
     public static class SourceSplitChangeResult {
 
         private final Set<RocketMQSourceSplit> increaseSet;
-        private final Set<MessageQueue> decreaseSet;
+        private final Set<RocketMQSourceSplit> decreaseSet;
+        private final Set<RocketMQSourceSplit> latestSet;
 
         private SourceSplitChangeResult(Set<RocketMQSourceSplit> increaseSet) {
             this.increaseSet = Collections.unmodifiableSet(increaseSet);
             this.decreaseSet = Sets.newHashSet();
+            this.latestSet = Sets.newHashSet();
         }
 
         private SourceSplitChangeResult(
-                Set<RocketMQSourceSplit> increaseSet, Set<MessageQueue> decreaseSet) {
+                Set<RocketMQSourceSplit> increaseSet, Set<RocketMQSourceSplit> decreaseSet, Set<RocketMQSourceSplit> latestSet) {
             this.increaseSet = Collections.unmodifiableSet(increaseSet);
             this.decreaseSet = Collections.unmodifiableSet(decreaseSet);
+            this.latestSet = latestSet;
         }
 
         public Set<RocketMQSourceSplit> getIncreaseSet() {
             return increaseSet;
         }
 
-        public Set<MessageQueue> getDecreaseSet() {
+        public Set<RocketMQSourceSplit> getLatestSet() {
+            return latestSet;
+        }
+
+        public Set<RocketMQSourceSplit> getDecreaseSet() {
             return decreaseSet;
         }
     }
@@ -408,7 +467,7 @@ public class RocketMQSourceEnumerator
         Set<MessageQueue> increaseSet = Sets.difference(latestSet, currentSet);
         Set<MessageQueue> decreaseSet = Sets.difference(currentSet, latestSet);
 
-        SourceChangeResult changeResult = new SourceChangeResult(increaseSet, decreaseSet);
+        SourceChangeResult changeResult = new SourceChangeResult(increaseSet, decreaseSet, latestSet);
 
         // Current topic route is same as before
         if (changeResult.isEmpty()) {
@@ -426,5 +485,44 @@ public class RocketMQSourceEnumerator
                     decreaseSet);
         }
         return changeResult;
+    }
+
+    private Map<Integer, Set<RocketMQSourceSplit>> handleChangeSpiltAssignment(
+            Map<Integer, Set<RocketMQSourceSplit>> newSourceSplitAllocateMap,
+            Set<RocketMQSourceSplit> deleteSpiltMap) {
+        Map<Integer, Set<RocketMQSourceSplit>> changeSplitMap = new HashMap<>();
+        for (RocketMQSourceSplit sourceSplit : deleteSpiltMap) {
+            for (Map.Entry<Integer, Set<RocketMQSourceSplit>> entry : currentSplitAssignmentMap.entrySet()) {
+                if (entry.getValue().contains(sourceSplit)) {
+                    changeSplitMap.computeIfAbsent(entry.getKey(), r -> new HashSet<>()).add(sourceSplit);
+                }
+            }
+        }
+
+        // When the queue is assigned to another task, the system notifies the old task to delete the queue
+        for (Map.Entry<Integer, Set<RocketMQSourceSplit>> entry : newSourceSplitAllocateMap.entrySet()) {
+            for (RocketMQSourceSplit rocketMQSourceSplit : entry.getValue()) {
+                if (currentSplitAssignmentMap.get(entry.getKey()).contains(rocketMQSourceSplit)) {
+                    continue;
+                }
+                for (Map.Entry<Integer, Set<RocketMQSourceSplit>> currentSplit : currentSplitAssignmentMap.entrySet()) {
+                    if (currentSplit.getValue().contains(rocketMQSourceSplit)) {
+                        changeSplitMap
+                                .computeIfAbsent(currentSplit.getKey(), r -> new HashSet<>())
+                                .add(
+                                        new RocketMQSourceSplit(
+                                                rocketMQSourceSplit.getMessageQueue(),
+                                                rocketMQSourceSplit.getStartingOffset(),
+                                                rocketMQSourceSplit.getStoppingOffset(),
+                                                (byte) 0));
+                    }
+                }
+                changeSplitMap.computeIfAbsent(entry.getKey(), r -> new HashSet<>()).add(rocketMQSourceSplit);
+            }
+        }
+
+        // update result
+        this.currentSplitAssignmentMap = newSourceSplitAllocateMap;
+        return changeSplitMap;
     }
 }
