@@ -499,6 +499,7 @@ public class RocketMQSourceEnumerator
             }
         }
 
+        // When the queue is assigned to another task, the system notifies the old task to delete the queue
         for (Map.Entry<Integer, Set<RocketMQSourceSplit>> entry : newSourceSplitAllocateMap.entrySet()) {
             for (RocketMQSourceSplit rocketMQSourceSplit : entry.getValue()) {
                 if (currentSplitAssignmentMap.get(entry.getKey()).contains(rocketMQSourceSplit)) {
