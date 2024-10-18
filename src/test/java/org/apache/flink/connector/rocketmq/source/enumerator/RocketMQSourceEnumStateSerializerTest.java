@@ -51,35 +51,35 @@ public class RocketMQSourceEnumStateSerializerTest {
                         0,
                         Arrays.asList(
                                 new RocketMQSourceSplit(
-                                        "0", "taobaodaily-01", 1, 0, System.currentTimeMillis()),
+                                        "0", "taobaodaily-01", 1, 0, System.currentTimeMillis(), (byte) 1),
                                 new RocketMQSourceSplit(
-                                        "3", "taobaodaily-01", 2, 0, System.currentTimeMillis()),
+                                        "3", "taobaodaily-01", 2, 0, System.currentTimeMillis(), (byte) 1),
                                 new RocketMQSourceSplit(
-                                        "6", "taobaodaily-01", 3, 0, System.currentTimeMillis()),
+                                        "6", "taobaodaily-01", 3, 0, System.currentTimeMillis(), (byte) 1),
                                 new RocketMQSourceSplit(
-                                        "9", "taobaodaily-01", 4, 0, System.currentTimeMillis())));
+                                        "9", "taobaodaily-01", 4, 0, System.currentTimeMillis(), (byte) 1)));
         pendingAssignment
                 .assignment()
                 .put(
                         1,
                         Arrays.asList(
                                 new RocketMQSourceSplit(
-                                        "1", "taobaodaily-02", 5, 0, System.currentTimeMillis()),
+                                        "1", "taobaodaily-02", 5, 0, System.currentTimeMillis(), (byte) 1),
                                 new RocketMQSourceSplit(
-                                        "4", "taobaodaily-02", 6, 0, System.currentTimeMillis()),
+                                        "4", "taobaodaily-02", 6, 0, System.currentTimeMillis(), (byte) 1),
                                 new RocketMQSourceSplit(
-                                        "7", "taobaodaily-02", 7, 0, System.currentTimeMillis())));
+                                        "7", "taobaodaily-02", 7, 0, System.currentTimeMillis(), (byte) 1)));
         pendingAssignment
                 .assignment()
                 .put(
                         2,
                         Arrays.asList(
                                 new RocketMQSourceSplit(
-                                        "2", "taobaodaily-03", 8, 0, System.currentTimeMillis()),
+                                        "2", "taobaodaily-03", 8, 0, System.currentTimeMillis(), (byte) 1),
                                 new RocketMQSourceSplit(
-                                        "5", "taobaodaily-03", 9, 0, System.currentTimeMillis()),
+                                        "5", "taobaodaily-03", 9, 0, System.currentTimeMillis(), (byte) 1),
                                 new RocketMQSourceSplit(
-                                        "8", "taobaodaily-03", 10, 0, System.currentTimeMillis())));
+                                        "8", "taobaodaily-03", 10, 0, System.currentTimeMillis(), (byte) 1)));
 
         return new RocketMQSourceEnumState(new HashSet<>());
     }

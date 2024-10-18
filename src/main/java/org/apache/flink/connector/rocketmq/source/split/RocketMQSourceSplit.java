@@ -37,15 +37,18 @@ public class RocketMQSourceSplit implements SourceSplit {
     private final int queueId;
     private final long startingOffset;
     private final long stoppingOffset;
+    // 1 : increase ;0 : delete
+    private final byte valid;
 
     public RocketMQSourceSplit(
-            MessageQueue messageQueue, long startingOffset, long stoppingOffset) {
+            MessageQueue messageQueue, long startingOffset, long stoppingOffset, byte valid) {
         this(
                 messageQueue.getTopic(),
                 messageQueue.getBrokerName(),
                 messageQueue.getQueueId(),
                 startingOffset,
-                stoppingOffset);
+                stoppingOffset,
+                valid);
     }
 
     public RocketMQSourceSplit(
@@ -53,12 +56,14 @@ public class RocketMQSourceSplit implements SourceSplit {
             String brokerName,
             int queueId,
             long startingOffset,
-            long stoppingOffset) {
+            long stoppingOffset,
+            byte valid) {
         this.topic = topic;
         this.brokerName = brokerName;
         this.queueId = queueId;
         this.startingOffset = startingOffset;
         this.stoppingOffset = stoppingOffset;
+        this.valid = valid;
     }
 
     public String getTopic() {
@@ -85,6 +90,9 @@ public class RocketMQSourceSplit implements SourceSplit {
         return new MessageQueue(topic, brokerName, queueId);
     }
 
+    public byte getValid() {
+        return valid;
+    }
     @Override
     public String splitId() {
         return topic + SEPARATOR + brokerName + SEPARATOR + queueId;

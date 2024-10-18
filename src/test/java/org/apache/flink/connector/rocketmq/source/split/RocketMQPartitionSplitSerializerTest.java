@@ -31,7 +31,7 @@ public class RocketMQPartitionSplitSerializerTest {
     public void testSerializePartitionSplit() throws IOException {
         RocketMQPartitionSplitSerializer serializer = new RocketMQPartitionSplitSerializer();
         RocketMQSourceSplit expected =
-                new RocketMQSourceSplit("test-split-serialization", "taobaodaily", 256, 100, 300);
+                new RocketMQSourceSplit("test-split-serialization", "taobaodaily", 256, 100, 300, (byte) 1);
         RocketMQSourceSplit actual =
                 serializer.deserialize(serializer.getVersion(), serializer.serialize(expected));
         assertEquals(expected, actual);
