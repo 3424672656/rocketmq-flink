@@ -93,6 +93,7 @@ public class RocketMQSourceSplit implements SourceSplit {
     public byte getValid() {
         return valid;
     }
+
     @Override
     public String splitId() {
         return topic + SEPARATOR + brokerName + SEPARATOR + queueId;

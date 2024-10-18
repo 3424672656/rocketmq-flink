@@ -305,8 +305,8 @@ public class RocketMQSourceEnumerator
                                                     mq, RocketMQSourceSplit.NO_STOPPING_OFFSET);
                                     return new RocketMQSourceSplit(
                                             mq, startingOffset, stoppingOffset, (byte) 1);
-                                }
-                        ).collect(Collectors.toSet());
+                                })
+                        .collect(Collectors.toSet());
 
         return new SourceSplitChangeResult(increaseSplitSet, decreaseSpiltSet, latestSpiltSet);
     }
@@ -506,12 +506,14 @@ public class RocketMQSourceEnumerator
                 }
                 for (Map.Entry<Integer, Set<RocketMQSourceSplit>> currentSplit : currentSplitAssignmentMap.entrySet()) {
                     if (currentSplit.getValue().contains(rocketMQSourceSplit)) {
-                        changeSplitMap.computeIfAbsent(currentSplit.getKey(), r -> new HashSet<>()).add(
-                                new RocketMQSourceSplit(
-                                        rocketMQSourceSplit.getMessageQueue(),
-                                        rocketMQSourceSplit.getStartingOffset(),
-                                        rocketMQSourceSplit.getStoppingOffset(),
-                                        (byte) 0));
+                        changeSplitMap
+                                .computeIfAbsent(currentSplit.getKey(), r -> new HashSet<>())
+                                .add(
+                                        new RocketMQSourceSplit(
+                                                rocketMQSourceSplit.getMessageQueue(),
+                                                rocketMQSourceSplit.getStartingOffset(),
+                                                rocketMQSourceSplit.getStoppingOffset(),
+                                                (byte) 0));
                     }
                 }
                 changeSplitMap.computeIfAbsent(entry.getKey(), r -> new HashSet<>()).add(rocketMQSourceSplit);
